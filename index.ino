@@ -13,8 +13,8 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 Adafruit_SHT4x sht40 = Adafruit_SHT4x();
 
-const char* WIFI_SSID = "HH71VM_C66E_2.4G";
-const char* WIFI_PASSWORD = "00334519";
+const char* WIFI_SSID = ":D";
+const char* WIFI_PASSWORD = ":D";
 const char* API_TOKEN = "replace-with-a-long-random-token";
 
 ESP8266WebServer server(80);
