@@ -9,8 +9,8 @@
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define OLED_RESET -1
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 Adafruit_SHT4x sht40 = Adafruit_SHT4x();
 
 const char* WIFI_SSID = ":D";
@@ -28,7 +28,7 @@ struct SensorReading {
 SensorReading reading;
 
 unsigned long lastSensorUpdate = 0;
-const unsigned long SENSOR_PERIOD = 3000;
+const unsigned long SENSOR_PERIOD = 1000;
 
 const char INDEX_HTML[] PROGMEM = R"=====(
 <!doctype html>
@@ -50,6 +50,7 @@ const char INDEX_HTML[] PROGMEM = R"=====(
       --muted-dim: #71717a;
       --accent: #22c55e;
       --danger: #f87171;
+      --warning: #fbbf24;
     }
 
     * {
@@ -84,12 +85,12 @@ const char INDEX_HTML[] PROGMEM = R"=====(
 
     .nav {
       width: min(720px, calc(100% - 32px));
-      margin: 0 auto;
       min-height: 64px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 16px;
+      margin: 0 auto;
     }
 
     .brand {
@@ -98,9 +99,9 @@ const char INDEX_HTML[] PROGMEM = R"=====(
       gap: 8px;
       color: var(--foreground);
       text-decoration: none;
+      font-size: 18px;
       font-weight: 700;
       letter-spacing: -0.03em;
-      font-size: 18px;
     }
 
     .accent {
@@ -237,12 +238,30 @@ const char INDEX_HTML[] PROGMEM = R"=====(
       box-shadow: 0 0 10px rgba(248, 113, 113, 0.7);
     }
 
-    #error {
-      min-height: 18px;
+    .comfort-line {
+      min-height: 20px;
       margin: 18px 0 0;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    #comfort {
+      color: var(--foreground);
+    }
+
+    #error {
+      display: none;
+      margin: 14px 0 0;
       color: var(--danger);
       font-size: 12px;
       line-height: 1.5;
+    }
+
+    #error.is-visible {
+      display: block;
     }
 
     .footer {
@@ -307,7 +326,7 @@ const char INDEX_HTML[] PROGMEM = R"=====(
 
         <p class="comment">
           // temperature and relative humidity<br>
-          // refresh interval: 3 seconds
+          // refresh interval: 1 second
         </p>
 
         <div class="readings">
@@ -346,6 +365,11 @@ const char INDEX_HTML[] PROGMEM = R"=====(
           </span>
         </div>
 
+        <p class="comfort-line">
+          <span class="accent">[ comfort ]</span>
+          <span id="comfort">calculating...</span>
+        </p>
+
         <p id="error" role="alert"></p>
       </div>
     </section>
@@ -362,11 +386,17 @@ const char INDEX_HTML[] PROGMEM = R"=====(
     const updatedEl = document.querySelector('#updated');
     const statusEl = document.querySelector('#status');
     const statusDotEl = document.querySelector('#status-dot');
+    const comfortEl = document.querySelector('#comfort');
     const errorEl = document.querySelector('#error');
 
     function setStatus(text, isError) {
       statusEl.textContent = text;
       statusDotEl.classList.toggle('error', isError);
+    }
+
+    function setError(message = '') {
+      errorEl.textContent = message;
+      errorEl.classList.toggle('is-visible', Boolean(message));
     }
 
     function formatValue(value) {
@@ -379,10 +409,48 @@ const char INDEX_HTML[] PROGMEM = R"=====(
       return number.toFixed(1);
     }
 
+    function getComfortMessage(temperature, humidity) {
+      if (!Number.isFinite(temperature) || !Number.isFinite(humidity)) {
+        return 'нет данных';
+      }
+
+      if (humidity < 30) {
+        return 'воздух слишком сухой';
+      }
+
+      if (humidity < 40) {
+        return 'воздух слегка сухой';
+      }
+
+      if (humidity > 70) {
+        return 'влажность слишком высокая';
+      }
+
+      if (humidity > 60) {
+        return 'влажность выше комфортной';
+      }
+
+      if (temperature < 18) {
+        return 'в комнате прохладно';
+      }
+
+      if (temperature < 20) {
+        return 'слегка прохладно';
+      }
+
+      if (temperature > 27) {
+        return 'в комнате слишком тепло';
+      }
+
+      if (temperature > 24) {
+        return 'слегка тепло';
+      }
+
+      return 'комфортный диапазон';
+    }
+
     async function loadReadings() {
       try {
-        setStatus('fetching...', false);
-
         const response = await fetch('/api/readings', {
           cache: 'no-store'
         });
@@ -393,20 +461,26 @@ const char INDEX_HTML[] PROGMEM = R"=====(
 
         const data = await response.json();
 
-        temperatureEl.textContent = formatValue(data.temperature);
-        humidityEl.textContent = formatValue(data.humidity);
+        const temperature = Number(data.temperature);
+        const humidity = Number(data.humidity);
+
+        temperatureEl.textContent = formatValue(temperature);
+        humidityEl.textContent = formatValue(humidity);
+        comfortEl.textContent = getComfortMessage(temperature, humidity);
+
         updatedEl.textContent = new Date().toLocaleTimeString('ru-RU');
 
         setStatus('online', false);
-        errorEl.textContent = '';
+        setError();
       } catch (error) {
         setStatus('offline', true);
-        errorEl.textContent = '[ error ] ' + error.message;
+        comfortEl.textContent = 'датчик недоступен';
+        setError('[ error ] ' + error.message);
       }
     }
 
     loadReadings();
-    setInterval(loadReadings, 3000);
+    setInterval(loadReadings, 1000);
   </script>
 </body>
 </html>
@@ -422,6 +496,7 @@ void updateOLED() {
   display.print(WiFi.localIP());
 
   display.setTextSize(2);
+
   display.setCursor(0, 20);
   display.print("T: ");
   display.print(reading.temperature, 1);
@@ -444,58 +519,122 @@ void readPhysicalSensor() {
   reading.humidity = humidityEvent.relative_humidity;
   reading.updatedAtMs = millis();
 
-  Serial.printf("SHT40 Read -> T: %.2f C, H: %.2f%%\n", reading.temperature, reading.humidity);
+  Serial.printf(
+    "SHT40 Read -> T: %.2f C, H: %.2f%%\n",
+    reading.temperature,
+    reading.humidity
+  );
 
   updateOLED();
 }
 
-bool isAuthorized() { return server.hasHeader("X-Api-Token") && server.header("X-Api-Token") == API_TOKEN; }
-void sendJson(int statusCode, JsonDocument& json) { String body; serializeJson(json, body); server.sendHeader("Access-Control-Allow-Origin", "*"); server.send(statusCode, "application/json; charset=utf-8", body); }
-void handleIndex() { server.send_P(200, "text/html; charset=utf-8", INDEX_HTML); }
+bool isAuthorized() {
+  return server.hasHeader("X-Api-Token") &&
+         server.header("X-Api-Token") == API_TOKEN;
+}
+
+void sendJson(int statusCode, JsonDocument& json) {
+  String body;
+
+  serializeJson(json, body);
+
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.send(statusCode, "application/json; charset=utf-8", body);
+}
+
+void handleIndex() {
+  server.send_P(200, "text/html; charset=utf-8", INDEX_HTML);
+}
 
 void handleStatus() {
   JsonDocument json;
+
   json["ok"] = true;
   json["device"] = "esp8266-nodemcu-v3-sht40";
   json["ip"] = WiFi.localIP().toString();
   json["uptimeMs"] = millis();
   json["freeHeap"] = ESP.getFreeHeap();
+
   sendJson(200, json);
 }
 
 void handleGetReadings() {
   JsonDocument json;
+
   json["temperature"] = reading.temperature;
   json["humidity"] = reading.humidity;
   json["updatedAtMs"] = reading.updatedAtMs;
+
   sendJson(200, json);
 }
 
 void handlePostReadings() {
-  if (!isAuthorized()) { JsonDocument json; json["ok"] = false; json["error"] = "Unauthorized."; sendJson(401, json); return; }
+  if (!isAuthorized()) {
+    JsonDocument json;
+
+    json["ok"] = false;
+    json["error"] = "Unauthorized.";
+
+    sendJson(401, json);
+    return;
+  }
+
   JsonDocument input;
   DeserializationError error = deserializeJson(input, server.arg("plain"));
-  if (error || !input["temperature"].is<float>() || !input["humidity"].is<float>()) { JsonDocument json; json["ok"] = false; json["error"] = "Invalid payload."; sendJson(400, json); return; }
+
+  if (
+    error ||
+    !input["temperature"].is<float>() ||
+    !input["humidity"].is<float>()
+  ) {
+    JsonDocument json;
+
+    json["ok"] = false;
+    json["error"] = "Invalid payload.";
+
+    sendJson(400, json);
+    return;
+  }
+
   reading.temperature = input["temperature"].as<float>();
   reading.humidity = input["humidity"].as<float>();
   reading.updatedAtMs = millis();
+
   updateOLED();
-  JsonDocument json; json["ok"] = true; sendJson(200, json);
+
+  JsonDocument json;
+  json["ok"] = true;
+
+  sendJson(200, json);
 }
 
-void handleNotFound() { JsonDocument json; json["ok"] = false; json["error"] = "Route not found."; sendJson(404, json); }
+void handleNotFound() {
+  JsonDocument json;
+
+  json["ok"] = false;
+  json["error"] = "Route not found.";
+
+  sendJson(404, json);
+}
 
 void connectToWifi() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
   Serial.printf("Connecting to Wi-Fi: %s", WIFI_SSID);
 
   unsigned long startedAt = millis();
+
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
-    if (millis() - startedAt > 30000) { Serial.println("\nWi-Fi timeout. Restarting..."); ESP.restart(); }
+
+    if (millis() - startedAt > 30000) {
+      Serial.println("\nWi-Fi timeout. Restarting...");
+      ESP.restart();
+    }
   }
+
   Serial.println("\nWi-Fi connected.");
   Serial.print("Open in browser: http://");
   Serial.println(WiFi.localIP());
@@ -507,18 +646,22 @@ void setup() {
 
   Wire.begin();
 
-  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    Serial.println(F("OLED на адресе 0x3C не найден. Пробуем адрес 0x3D..."));
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(
+      F("OLED на адресе 0x3C не найден. Пробуем адрес 0x3D...")
+    );
 
-    if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3D)) {
-      Serial.println(F("Ошибка: OLED дисплей вообще не определился на шине I2C!"));
+    if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3D)) {
+      Serial.println(
+        F("Ошибка: OLED дисплей вообще не определился на шине I2C!")
+      );
     }
   }
 
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0,0);
+  display.setCursor(0, 0);
   display.println("Connecting Wi-Fi...");
   display.display();
 
@@ -533,16 +676,19 @@ void setup() {
   connectToWifi();
 
   server.collectHeaders("X-Api-Token");
+
   server.on("/", HTTP_GET, handleIndex);
   server.on("/api/status", HTTP_GET, handleStatus);
   server.on("/api/readings", HTTP_GET, handleGetReadings);
   server.on("/api/readings", HTTP_POST, handlePostReadings);
   server.onNotFound(handleNotFound);
+
   server.begin();
 
   Serial.println("HTTP server started.");
 
   readPhysicalSensor();
+  lastSensorUpdate = millis();
 }
 
 void loop() {
